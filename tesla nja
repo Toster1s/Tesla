@@ -1,0 +1,203 @@
+using System;
+using System.Data.SQLite;
+// Packages:
+// System.Data.SQLite
+// System.Configuration.ConfigurationManager
+class Program
+{
+    private static string connectionString = "Data Source=TeslaRental.db;Version=3;";
+
+    static void Main(string[] args)
+    {
+        InitializeDatabase(); // Inicializē datubāzi un tabulas
+
+        while (true)
+        {
+            Console.WriteLine("\nTesla automašīnu īres platforma");
+            Console.WriteLine("==================================");
+            Console.WriteLine("1. Reģistrēt klientu");
+            Console.WriteLine("2. Pievienot Tesla auto");
+            Console.WriteLine("3. Uzsākt īri");
+            Console.WriteLine("4. Pabeigt īri");
+            Console.WriteLine("5. Iziet");
+            Console.Write("Izvēlies darbību: ");
+
+            int choice = Convert.ToInt32(Console.ReadLine());
+
+            switch (choice)
+            {
+                case 1:
+                    RegisterCustomer();
+                    break;
+                case 2:
+                    AddCar();
+                    break;
+                case 3:
+                    StartRental();
+                    break;
+                case 4:
+                    EndRental();
+                    break;
+                case 5:
+                    return; // Izeja no programmas
+                default:
+                    Console.WriteLine("Nepareiza izvēle. Mēģini vēlreiz.");
+                    break;
+            }
+        }
+    }
+
+    static void InitializeDatabase()
+    {
+        using (var connection = new SQLiteConnection(connectionString))
+        {
+            connection.Open();
+            string createCustomersTable = @"CREATE TABLE IF NOT EXISTS Customers (
+                                            ID INTEGER PRIMARY KEY AUTOINCREMENT, 
+                                            FullName TEXT, 
+                                            Email TEXT)";
+            string createCarsTable = @"CREATE TABLE IF NOT EXISTS Cars (
+                                        ID INTEGER PRIMARY KEY AUTOINCREMENT, 
+                                        Model TEXT, 
+                                        HourlyRate REAL, 
+                                        KmRate REAL)";
+            string createRentalsTable = @"CREATE TABLE IF NOT EXISTS Rentals (
+                                            ID INTEGER PRIMARY KEY AUTOINCREMENT, 
+                                            CustomerID INTEGER, 
+                                            CarID INTEGER, 
+                                            StartTime TEXT, 
+                                            EndTime TEXT, 
+                                            KmDriven REAL, 
+                                            TotalPayment REAL,
+                                            FOREIGN KEY(CustomerID) REFERENCES Customers(ID),
+                                            FOREIGN KEY(CarID) REFERENCES Cars(ID))";
+
+            ExecuteNonQuery(connection, createCustomersTable);
+            ExecuteNonQuery(connection, createCarsTable);
+            ExecuteNonQuery(connection, createRentalsTable);
+        }
+    }
+
+    static void RegisterCustomer()
+    {
+        Console.Write("Ievadi vārdu un uzvārdu: ");
+        string fullName = Console.ReadLine();
+        Console.Write("Ievadi e-pastu: ");
+        string email = Console.ReadLine();
+
+        using (var connection = new SQLiteConnection(connectionString))
+        {
+            connection.Open();
+            string query = "INSERT INTO Customers (FullName, Email) VALUES (@name, @Email)";
+            var command = new SQLiteCommand(query, connection);
+            command.Parameters.AddWithValue("@name", fullName);
+            command.Parameters.AddWithValue("@Email", email);
+            command.ExecuteNonQuery();
+
+            Console.WriteLine("Klients veiksmīgi reģistrēts!");
+        }
+    }
+
+    static void AddCar()
+    {
+        Console.Write("Ievadi Tesla auto modeli: ");
+        string model = Console.ReadLine();
+        Console.Write("Ievadi stundas likmi (EUR/h): ");
+        double hourlyRate = Convert.ToDouble(Console.ReadLine());
+        Console.Write("Ievadi kilometra likmi (EUR/km): ");
+        double kmRate = Convert.ToDouble(Console.ReadLine());
+
+        using (var connection = new SQLiteConnection(connectionString))
+        {
+            connection.Open();
+            string query = "INSERT INTO Cars (Model, HourlyRate, KmRate) VALUES (@model, @hourlyRate, @kmRate)";
+            var command = new SQLiteCommand(query, connection);
+            command.Parameters.AddWithValue("@model", model);
+            command.Parameters.AddWithValue("@hourlyRate", hourlyRate);
+            command.Parameters.AddWithValue("@kmRate", kmRate);
+            command.ExecuteNonQuery();
+
+            Console.WriteLine("Tesla auto veiksmīgi pievienots!");
+        }
+    }
+
+    static void StartRental()
+    {
+        Console.Write("Ievadi klienta ID: ");
+        int customerId = Convert.ToInt32(Console.ReadLine());
+        Console.Write("Ievadi Tesla auto ID: ");
+        int carId = Convert.ToInt32(Console.ReadLine());
+
+        using (var connection = new SQLiteConnection(connectionString))
+        {
+            connection.Open();
+            string query = "INSERT INTO Rentals (CustomerID, CarID, StartTime) VALUES (@customerId, @carId, @startTime)";
+            var command = new SQLiteCommand(query, connection);
+            command.Parameters.AddWithValue("@customerId", customerId);
+            command.Parameters.AddWithValue("@carId", carId);
+            command.Parameters.AddWithValue("@startTime", DateTime.Now);
+            command.ExecuteNonQuery();
+
+            Console.WriteLine("Īre veiksmīgi uzsākta!");
+        }
+    }
+
+    static void EndRental()
+    {
+        Console.Write("Ievadi īres ID: ");
+        int rentalId = Convert.ToInt32(Console.ReadLine());
+        Console.Write("Nobrauktie kilometri: ");
+        double kmDriven = Convert.ToDouble(Console.ReadLine());
+
+        using (var connection = new SQLiteConnection(connectionString))
+        {
+            connection.Open();
+
+            string query = @"SELECT StartTime, HourlyRate, KmRate 
+                             FROM Rentals r 
+                             JOIN Cars c ON r.CarID = c.ID 
+                             WHERE r.ID = @rentalId";
+            var command = new SQLiteCommand(query, connection);
+            command.Parameters.AddWithValue("@rentalId", rentalId);
+
+            using (var reader = command.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    DateTime startTime = DateTime.Parse(reader["StartTime"].ToString());
+                    double hourlyRate = Convert.ToDouble(reader["HourlyRate"]);
+                    double kmRate = Convert.ToDouble(reader["KmRate"]);
+
+                    double hours = (DateTime.Now - startTime).TotalHours;
+                    double totalPayment = (hours * hourlyRate) + (kmDriven * kmRate);
+
+                    string updateQuery = @"UPDATE Rentals 
+                                           SET EndTime = @endTime, 
+                                               KmDriven = @kmDriven, 
+                                               TotalPayment = @totalPayment 
+                                           WHERE ID = @rentalId";
+                    var updateCommand = new SQLiteCommand(updateQuery, connection);
+                    updateCommand.Parameters.AddWithValue("@endTime", DateTime.Now);
+                    updateCommand.Parameters.AddWithValue("@kmDriven", kmDriven);
+                    updateCommand.Parameters.AddWithValue("@totalPayment", totalPayment);
+                    updateCommand.Parameters.AddWithValue("@rentalId", rentalId);
+                    updateCommand.ExecuteNonQuery();
+
+                    Console.WriteLine($"Maksājums veiksmīgi aprēķināts: {totalPayment:F2} EUR");
+                }
+                else
+                {
+                    Console.WriteLine("Īres ID nav atrasts!");
+                }
+            }
+        }
+    }
+
+    static void ExecuteNonQuery(SQLiteConnection connection, string query)
+    {
+        using (var command = new SQLiteCommand(query, connection))
+        {
+            command.ExecuteNonQuery();
+        }
+    }
+}
